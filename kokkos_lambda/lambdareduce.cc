@@ -5,20 +5,19 @@ namespace Kokkos {
 template <typename I, typename Acc, typename Body, typename Join, Body b, Join j>
 struct LambdaFunctor {
   using value_type = Acc; 
-  using size_type = I; 
   
   template<typename ... Args>
   KOKKOS_INLINE_FUNCTION
-  auto join(Args... as) const -> 
-    decltype(j(as...)){
-      return j(as...);
+  auto join(Args&&... as) const -> decltype(j(as...)){
+    return j(std::forward<Args>(as)...);
   }; 
+
   template<typename ... Args>
   KOKKOS_INLINE_FUNCTION
-  auto operator()(Args... as) const ->
-    decltype(b(as...)) {
-      return b(as...); 
+  auto operator()(Args&&... as) const -> decltype(b(as...)) {
+    return b(std::forward<Args>(as)...); 
   };
+
 }; 
 
 template <typename I, typename Body, typename Join, typename Acc>
@@ -32,11 +31,11 @@ int main(int argc, char** argv){
   Kokkos::initialize(argc, argv); 
   auto body = [](size_t i, int& j){ printf("body %lu %d\n", i, j); j += i; }; 
   auto join = [](int& dst, const int& src){ printf("join %d %d\n", dst, src); dst += src; }; 
-  int s;
-  s = 0; 
-  Kokkos::parallel_reduce(20, body, join, s); 
-  printf("result: %d\n", s); 
-  s = 0; 
-  Kokkos::parallel_reduce(20, body, s); 
-  printf("result: %d\n", s); 
+  int acc;
+  acc = 0; 
+  Kokkos::parallel_reduce(20, body, join, acc); 
+  printf("result: %d\n", acc); 
+  acc = 0; 
+  Kokkos::parallel_reduce(20, body, acc); 
+  printf("result: %d\n", acc); 
 }

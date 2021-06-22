@@ -1,3 +1,3 @@
 
 lambdareduce:  lambdareduce.cc
-	clang++ -o $@ -fopenmp -lkokkoscore -lhwloc -ldl -std=c++20 $< 
+	clang++ -Wall -o $@ -fopenmp -lkokkoscore -lhwloc -ldl -std=c++20 $< 
