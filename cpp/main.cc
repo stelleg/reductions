@@ -5,7 +5,7 @@
 #include<iostream>
 #include<string>
 #include<chrono>
-//#include"reductions.h"
+#include"reductions.h"
 
 using namespace std; 
 
@@ -56,7 +56,7 @@ int main(){
   auto start = chrono::high_resolution_clock::now(); 
   Kokkos::parallel_reduce(n, [&big](const uint64_t i, double& y){
     y += big[i];
-  }, sum); 
+  }, [=](double& dest, const double&src){ dest += src; }); 
   auto stop = chrono::high_resolution_clock::now(); 
   cout << "kokkos reduce: "  << sum << ", " << chrono::duration_cast<chrono::milliseconds>(stop-start).count() << " ms" << endl; 
 }
