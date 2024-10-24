@@ -2,7 +2,7 @@
 #include<assert.h>
 #include<unistd.h>
 #include<stdio.h>
-//#include<kitsune.h>
+#include<kitsune.h>
 
 template <typename a, typename um, typename v> 
 a reduce(um m, v& xs){
@@ -22,7 +22,7 @@ a parReduce(um m, v& xs, uint64_t nthreads){
   uint64_t size = xs.end() - xs.begin(); 
   assert(size % nthreads == 0); 
   uint64_t grainsize = size / nthreads; 
-  for(uint64_t i=0; i<nthreads; i++){
+  forall(uint64_t i=0; i<nthreads; i++){
     accs[i*linenum] = m.id();
     for(uint64_t j = i*grainsize; j<(i+1)*grainsize; j++){
       accs[i*linenum] = m.op(accs[i*linenum], xs[j]);

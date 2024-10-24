@@ -57,8 +57,8 @@ a blockReduce(a acc){
 template <typename a>
 __global__ 
 void gpuReduce(a *in, a* out, uint64_t n){
-  size_t i = blockIdx.x * blockDim.x + threadIdx.x;
-  size_t nthr = blockDim.x * gridDim.x; 
+  int i = blockIdx.x * blockDim.x + threadIdx.x;
+  int nthr = blockDim.x * gridDim.x; 
   if(i < n){
     a acc = in[i];
     for(i+= nthr; i < n; i+= nthr)
@@ -83,36 +83,41 @@ __global__ void gpuInit(a* xs, uint64_t n){
 int main(int argc, char** argv){
   uint64_t n = 1ULL << (argc > 1 ? atoi(argv[1]) : 28);
   printf("n = %ld\n", n); 
-  double* xs;  checkCUDA(cudaMalloc(&xs, n*sizeof(double))); 
-  double* host_xs = (double*)malloc(n*sizeof(double)); 
-
+  //double* xs = (double*)malloc(n*sizeof(double)); 
+  double * xs; cudaMallocManaged(&xs, n*sizeof(double)); 
 
   gpuInit<double><<<256, 1024>>>(xs, n); 
   checkCUDA(cudaGetLastError()); 
-  checkCUDA(cudaMemcpy(host_xs, xs, n*sizeof(double), cudaMemcpyDeviceToHost)); 
+  checkCUDA(cudaDeviceSynchronize()); 
 
+  // Sequential reduction
+  double seq_red = 0.0; 
+  for(uint64_t i=0; i<n; i++){
+    seq_red += xs[i];
+  }
+  printf("seq red: %f\n", seq_red);
   printf("warpSize: %d\n", warpSize); 
   int blockdim = warpSize * warpSize;
   int griddim = blockdim;
 
-  double res;
-  double* out; checkCUDA(cudaMalloc(&out, griddim*sizeof(double)));
+  double* out = (double*)malloc(griddim*sizeof(double));
 
   // Warm up
   gpuReduce<double><<<griddim, blockdim>>>(xs, out, n); 
   checkCUDA(cudaGetLastError()); 
+  checkCUDA(cudaDeviceSynchronize()); 
   gpuReduce<double><<<1, griddim>>>(out, out, griddim); 
   checkCUDA(cudaGetLastError()); 
-  checkCUDA(cudaMemcpy(&res, out, sizeof(double), cudaMemcpyDeviceToHost)); 
-
-  printf("red: %f\n", res); 
+  checkCUDA(cudaDeviceSynchronize()); 
+  printf("red: %f\n", out[0]); 
     
   clock_t before = clock(); 
-  int niter = 1000; 
+  int niter = 100; 
   for(int it = 0; it < niter; it++){
     gpuReduce<double><<<griddim, blockdim>>>(xs, out, n); 
+    cudaDeviceSynchronize(); 
     gpuReduce<double><<<1, griddim>>>(out, out, griddim); 
-    checkCUDA(cudaMemcpy(&res, out, sizeof(double), cudaMemcpyDeviceToHost)); 
+    cudaDeviceSynchronize(); 
   }
   clock_t after = clock();
 
@@ -121,6 +126,6 @@ int main(int argc, char** argv){
   printf("Test duration %.4fs\n", duration); 
   printf("Reduction throughput = %.4f GB/s\n", gb /duration); 
 
-  checkCUDA(cudaFree(xs));
-  free(host_xs);
+  //free(xs);
+  cudaFree(xs); 
 }

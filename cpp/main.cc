@@ -1,5 +1,5 @@
-#include<Kokkos_Core.hpp>
-#include<Kokkos_Vector.hpp>
+//#include<Kokkos_Core.hpp>
+//#include<Kokkos_Vector.hpp>
 #include<vector>
 #include<array>
 #include<iostream>
@@ -15,6 +15,7 @@ int main(){
   cout << "sum: " << reduce<int>(Sum<int>(), xs) << endl; 
   cout << "par sum: " << parReduce<int>(Sum<int>(), xs, 2) << endl; 
   cout << "max: " << reduce<int>(Max<int>(), xs) << endl; 
+  cout << "par max: " << parReduce<int>(Max<int>(), xs, 2) << endl; 
 
   // string concatenation: associative, not commutative
   vector<string> ss = {"hello ", "world"}; 
@@ -29,17 +30,20 @@ int main(){
   uint64_t n = 1ull<<31; 
   vector<double> big(n, 3.14); 
 
-  //sequential 
+  //sequential c
   auto start = chrono::high_resolution_clock::now(); 
-  double sum = reduce<double>(Sum<double>(), big); 
+  double sum = 0;
+  for(uint64_t i=0; i<n; i++){
+    sum += big[i];
+  }
   auto stop = chrono::high_resolution_clock::now(); 
-  cout << "seq reduce: " << sum << ", " << chrono::duration_cast<chrono::milliseconds>(stop-start).count() << " ms" << endl; 
-
-  //parallel
+  cout << "seq c reduce: " << sum << ", " << chrono::duration_cast<chrono::milliseconds>(stop-start).count() << " ms" << endl; 
+  
+  //sequential 
   start = chrono::high_resolution_clock::now(); 
-  sum = parReduce<double>(Sum<double>(), big, 64);  
+  sum = reduce<double>(Sum<double>(), big); 
   stop = chrono::high_resolution_clock::now(); 
-  cout << "par reduce: " << sum << ", " << chrono::duration_cast<chrono::milliseconds>(stop-start).count() << " ms" << endl; 
+  cout << "seq reduce: " << sum << ", " << chrono::duration_cast<chrono::milliseconds>(stop-start).count() << " ms" << endl; 
 
   //openmp
   sum = 0;
@@ -51,7 +55,14 @@ int main(){
   stop = chrono::high_resolution_clock::now(); 
   cout << "omp reduce: "  << sum << ", " << chrono::duration_cast<chrono::milliseconds>(stop-start).count() << " ms" << endl; 
 
-  //kokkos
+  //parallel
+  start = chrono::high_resolution_clock::now(); 
+  sum = parReduce<double>(Sum<double>(), big, 2048);  
+  stop = chrono::high_resolution_clock::now(); 
+  cout << "par reduce: " << sum << ", " << chrono::duration_cast<chrono::milliseconds>(stop-start).count() << " ms" << endl; 
+
+
+  /*kokkos
   double sum = 0;
   auto start = chrono::high_resolution_clock::now(); 
   Kokkos::parallel_reduce(n, [&big](const uint64_t i, double& y){
@@ -59,4 +70,5 @@ int main(){
   }, [=](double& dest, const double&src){ dest += src; }); 
   auto stop = chrono::high_resolution_clock::now(); 
   cout << "kokkos reduce: "  << sum << ", " << chrono::duration_cast<chrono::milliseconds>(stop-start).count() << " ms" << endl; 
+  */
 }

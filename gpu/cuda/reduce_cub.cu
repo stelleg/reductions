@@ -4,6 +4,7 @@
 #include<iostream>
 #include<stdint.h>
 #include<assert.h>
+#include<cub/cub.cuh>
 
 #define checkCUDA(condition)                                                                \
     {                                                                                       \
@@ -22,31 +23,25 @@ void  reduce(a* x, a y){
   *x = *x + y;
 }
 
-template <typename a, uint32_t blockSize, uint32_t numStrides>
-__global__ void gpuReduce(a* xs, a* localreds, a unit, uint64_t n){
-  extern __shared__ a sdata[]; 
-  uint32_t tid = threadIdx.x;
-  uint64_t i = blockIdx.x*(blockSize*numStrides) + tid; 
-  uint32_t gridSize = blockSize*numStrides*gridDim.x;
-  sdata[tid] = unit;
-  while(i<n) { 
-    for(int j=0; j<numStrides; j++){
-      reduce(sdata+tid, xs[i+j*blockSize]); 
-    }
-    i+= gridSize; 
-  } 
-  __syncthreads();
+void *temps = nullptr;
+size_t temps_size = 0;
 
-  for(int i=512; i>1; i >>= 1){
-    if(blockSize >= i){
-      if(tid < max(i/2,32)){
-        reduce(sdata+tid, sdata[tid+i/2]); 
-        __syncthreads(); 
-      }
-    }
-  }
+template<typename a> 
+a gpuReduce(a *ins, a* outs, size_t n) {
+    // CUB can't handle large arrays with over 2 billion elements!
+    assert(n < std::numeric_limits<int>::max());
 
-  if(tid == 0) localreds[blockIdx.x] = sdata[tid]; 
+    a res; 
+    // Determine temporary device storage requirements
+    if(!temps) {
+      checkCUDA(cub::DeviceReduce::Sum(temps, temps_size, ins, outs, n)); 
+      printf("allocating %d bytes for cub\n", temps_size); 
+      checkCUDA(cudaMalloc(&temps, temps_size)); 
+    }
+    checkCUDA(cub::DeviceReduce::Sum(temps, temps_size, ins, outs, n));
+    checkCUDA(cudaMemcpy(&res, outs, sizeof(double), cudaMemcpyDeviceToHost)); 
+
+    return res;  
 }
 
 template <typename a>
@@ -56,7 +51,7 @@ __global__ void gpuInit(a* xs, uint64_t n){
   unsigned int gridSize = blockDim.x*gridDim.x;
   extern __shared__ a sdata[]; 
   while(i<n) {
-    xs[i] = 1.00*i; 
+    xs[i] = (a)i; 
     i+=gridSize; 
   }
 }
@@ -65,31 +60,23 @@ int main(int argc, char** argv){
   uint64_t n = 1ULL << (argc > 1 ? atoi(argv[1]) : 28);
   printf("n = %ld\n", n); 
   double* xs;  checkCUDA(cudaMalloc(&xs, n*sizeof(double))); 
-  double* host_xs = (double*)malloc(n*sizeof(double)); 
+  double* out; checkCUDA(cudaMalloc(&out, sizeof(double))); 
   constexpr uint32_t dimBlock = 1UL << 8; 
   printf("blocksize = %d\n", dimBlock); 
   constexpr uint64_t dimGrid = 1UL << 8; 
   printf("gridsize = %ld\n", dimGrid); 
   double* reds; checkCUDA(cudaMalloc(&reds, dimGrid*sizeof(double))); 
-  double* host_reds = (double*)malloc(dimGrid*sizeof(double)); 
-  double* finalRed; checkCUDA(cudaMalloc(&finalRed, sizeof(double))); 
 
   gpuInit<double><<<dimGrid, dimBlock>>>(xs, n); 
-  checkCUDA(cudaGetLastError()); 
-  checkCUDA(cudaMemcpy(host_xs, xs, n*sizeof(double), cudaMemcpyDeviceToHost)); 
-
+  checkCUDA(cudaDeviceSynchronize()); 
   // Warm up
-  gpuReduce<double, dimBlock, 2><<<dimGrid, dimBlock, dimBlock*sizeof(double)>>>(xs, reds, 0.0, n); 
-  gpuReduce<double, dimGrid, 2><<<1, dimGrid, dimGrid*sizeof(double)>>>(reds, finalRed, 0.0, dimGrid); 
-  checkCUDA(cudaMemcpy(host_reds, finalRed, sizeof(double), cudaMemcpyDeviceToHost));
-  printf("red: %f\n", host_reds[0]); 
-
+  double res = gpuReduce<double>(xs, out, n); 
+  printf("red: %f\n", res); 
+    
   clock_t before = clock(); 
   int niter = 1000; 
   for(int it = 0; it < niter; it++){
-    gpuReduce<double, dimBlock, 2><<<dimGrid, dimBlock, dimBlock*sizeof(double)>>>(xs, reds, 0.0, n); 
-    gpuReduce<double, dimGrid, 2><<<1, dimGrid, dimGrid*sizeof(double)>>>(reds, finalRed, 0.0, dimGrid); 
-    checkCUDA(cudaMemcpy(host_reds, finalRed, sizeof(double), cudaMemcpyDeviceToHost));
+    double res = gpuReduce<double>(xs, out, n); 
   }
   clock_t after = clock();
 
@@ -100,19 +87,4 @@ int main(int argc, char** argv){
 
   checkCUDA(cudaFree(xs));
   checkCUDA(cudaFree(reds));
-  checkCUDA(cudaFree(finalRed)); 
-  free(host_xs);
-  free(host_reds); 
 }
-
-    /*
-    //checkCUDA(cudaMemcpy(host_reds, reds, dimGrid*sizeof(double), cudaMemcpyDeviceToHost)); 
-    double red = 0.0; 
-    for(int i=0; i<dimGrid; i++){
-      // expected local variable to be 
-      double elv = (double)n / dimGrid; 
-      //if(abs(reds[i] - elv) > 0.1) 
-      //printf("%f, %f \n", reds[i], elv); 
-      red += host_reds[i]; 
-    }
-    */
